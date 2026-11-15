@@ -148,7 +148,7 @@ Known limitation, on purpose: if a user manually resolves an incident while the 
 
 | Aggregate | Root | Contains | Invariants |
 |-----------|------|----------|-----------|
-| Delivery | `Delivery` | Attempts counter, last error | `dedupeKey` is unique. Status moves `PENDING → SENT` or `PENDING → DEAD`; `DEAD → PENDING` only by manual retry. `attempts` never exceeds 5 without a manual retry. |
+| Delivery | `Delivery` | Attempts counter, last error | `dedupeKey` is unique. Status moves `PENDING → SENT`, `PENDING → DEAD`, or `PENDING → CANCELLED` (a page whose incident was acknowledged or resolved before it was sent); `DEAD → PENDING` only by manual retry. `attempts` never exceeds 5 without a manual retry. |
 | Contact method | `ContactMethod` | — | Belongs to one user. SMS targets are E.164 numbers. |
 | Organization channel | `OrgChannel` | — | URL passes the SSRF guard when saved and again when used. |
 | Recipient (replica) | `Recipient` | — | Read-only copy of user email and name from `auth.user.changed.v1`. |

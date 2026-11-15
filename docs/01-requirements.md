@@ -99,7 +99,7 @@ Targets are for the reference dev machine (Windows 11, Docker Desktop on WSL2, ~
 |------|--------|
 | Read API (p95) | < 200 ms |
 | Write API (p95) | < 400 ms |
-| Failure detection, default settings (30 s interval, threshold 3, retry 10 s, 10 s timeout) | Incident opened ≤ 90 s after the target starts failing |
+| Failure detection with a 30 s interval and default thresholds (threshold 3, retry 10 s, 10 s timeout) | Incident opened ≤ 90 s after the target starts failing (≤ 120 s with the default 60 s interval) |
 | Incident opened → page requested | ≤ 2 s (p95) |
 | Page requested → first delivery attempt | ≤ 5 s (p95) |
 | Incident change → visible in browser | ≤ 2 s (p95) |

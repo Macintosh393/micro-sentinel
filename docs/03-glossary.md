@@ -58,7 +58,7 @@ This is the **single source of truth for names**. Every other document, table, e
 | **Contact method** | A way to reach a user: `EMAIL` or `SMS` with an address or number. | notification |
 | **Organization channel** | A shared destination for incident events: `WEBHOOK` or `CHAT_WEBHOOK`. | notification |
 | **Recipient** | Notification's view of a user. | notification |
-| **Delivery** | One message to one target through one channel, with its attempts and status (`PENDING`, `SENT`, `DEAD`). | notification |
+| **Delivery** | One message to one target through one channel, with its attempts and status (`PENDING`, `SENT`, `DEAD`, `CANCELLED`). | notification |
 | **Dedupe key** | A string that is identical for two attempts to create the same delivery. | notification |
 | **Redrive** | Manually retrying a `DEAD` delivery. | notification |
 | **Uptime %** | Successful checks ÷ total checks in a time window. | analytics |
