@@ -70,7 +70,8 @@ Decision records: [ADR-0011](../adr/0011-incident-state-machine-not-event-sourci
 ```
 inbox insert (dedupe)
 upsert monitor_cursors if event.stateVersion > last   → else: stale, commit, ack
-INSERT incident (status OPEN, level 1, trigger_event_id, next_escalation_at = now + level1.delay)
+INSERT incident (status OPEN, opened_at = event.changedAt, level 1, trigger_event_id,
+                 next_escalation_at = now + level1.delay)
      -- unique partial index → conflict means one is already open: commit, ack
 INSERT timeline OPENED
 responders = PageResolver(level 1)

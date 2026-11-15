@@ -69,7 +69,7 @@ flowchart LR
 | Component | Job |
 |-----------|-----|
 | `Planner` | Event → target list → `INSERT … ON CONFLICT (dedupe_key) DO NOTHING` → send command per new row |
-| `Sender` | Lock row, check `PENDING`, bump attempts, send (5 s timeout), record outcome, publish result event |
+| `Sender` | Lock row, check `PENDING`, bump attempts, send (5 s timeout), record outcome, publish result event. Subscribes with `inbox: false`: the delivery row is its idempotency record ([why](../flows/notification-retry-and-dlq.md#why-notificationdelivery-jobs-does-not-use-the-inbox)) |
 | `ChannelAdapter` (×4) | One interface: `send(delivery) → { ok } | { retryable, error }`. Renders the message from `payload` |
 | `ErrorClassifier` | Timeout, connection error, `429`, `5xx` → retryable. Other `4xx`, invalid address, SSRF block → permanent |
 | `CircuitBreaker` (opossum) | Keyed by channel type + destination host. Opens after 5 consecutive failures; half-open after 30 s. While open, sends fail immediately as retryable, without waiting 5 s each |

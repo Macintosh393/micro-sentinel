@@ -76,6 +76,12 @@ CREATE TABLE stream_offsets (                  -- how far each stream has been p
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE analytics_state (                 -- one row: projection state survives restarts
+  id          smallint    PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  state       text        NOT NULL DEFAULT 'RUNNING' CHECK (state IN ('RUNNING', 'REBUILDING', 'STOPPED')),
+  changed_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE quarantined_events (              -- messages that could not be projected
   stream          text        NOT NULL,
   stream_offset   bigint      NOT NULL,

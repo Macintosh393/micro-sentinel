@@ -22,7 +22,7 @@ Decision records: [ADR-0021](../adr/0021-postgres-analytics-store.md) (store), [
 
 ## Owned data
 
-`analytics_db`: `monitors_dim`, `check_results` (daily partitions), `check_rollups_hourly`, `dirty_buckets`, `incident_facts`, `stream_offsets`, `quarantined_events`. All disposable. Schema and SQL: [analytics-schema](../data/analytics-schema.md).
+`analytics_db`: `monitors_dim`, `check_results` (daily partitions), `check_rollups_hourly`, `dirty_buckets`, `incident_facts`, `stream_offsets`, `analytics_state`, `quarantined_events`. All disposable. Schema and SQL: [analytics-schema](../data/analytics-schema.md).
 
 ## Sync APIs
 

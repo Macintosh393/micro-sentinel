@@ -64,6 +64,7 @@ broker-ack
 - If the handler throws, the transaction rolls back *including the inbox row*, so a retry is processed normally.
 - If the process crashes after `COMMIT` but before the broker ack, the redelivery hits the inbox row and is acked without effect.
 - Rows are deleted after 7 days. That is safe because no message is redelivered later than the retry schedule (minutes) and stream replays go through a different path (below).
+- **One exception:** notification's own work queue `notification.delivery-jobs` subscribes with `inbox: false`. Its handler spans several transactions (count the attempt, send, record the outcome) and retries reuse the envelope `id`, so an inbox row would block legitimate retries. There the `deliveries` row and its status are the idempotency record ([ADR-0013](0013-notification-owns-delivery-state.md), [retry flow](../flows/notification-retry-and-dlq.md)).
 
 **2. Version checks (reordering and stale data).**
 
