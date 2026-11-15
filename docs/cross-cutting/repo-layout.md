@@ -25,7 +25,7 @@ micro-sentinel/
 │  ├─ lgtm/                     # dashboards, alert rules
 │  └─ toxiproxy/
 ├─ pacts/                       # Pact files written by consumer tests
-├─ scripts/                     # check-deps.mjs, dlq-redrive.mjs, wait-healthy.mjs
+├─ scripts/                     # check-deps.mjs, dlq-redrive.mjs, wait-healthy.mjs, forge-token.mjs (lab: a JWT signed by a throwaway key)
 ├─ apps/
 │  ├─ gateway/
 │  ├─ auth/

@@ -7,13 +7,14 @@ Everything runs from Docker Compose on one machine, offline once images are pull
 ```
 compose.yaml              # the whole system with production-style images
 compose.dev.yaml          # override: dev build target, file sync, debug ports
+compose.chaos.yaml        # override: routes selected connections through toxiproxy (break-it lab)
 .env.example              # copied to .env; development defaults only
 infra/
   postgres/init/01-databases.sql   # creates the five databases and roles
   rabbitmq/rabbitmq.conf           # memory watermark, load_definitions
   rabbitmq/definitions.json        # shared exchanges, archive streams, dev user
   lgtm/                            # Grafana dashboards, optional collector override
-  toxiproxy/toxiproxy.json         # proxies used by the break-it lab
+  toxiproxy/toxiproxy.json         # proxies: postgres_incident :15432, dev_stubs :13000, flaky_target :13001
 ```
 
 ## Commands
@@ -24,7 +25,7 @@ infra/
 | Develop with hot reload | `docker compose -f compose.yaml -f compose.dev.yaml up --watch` |
 | Add observability | `docker compose --profile obs up -d --wait` |
 | Add analytics | `docker compose --profile analytics up -d --wait` |
-| Add chaos tools | `docker compose --profile chaos up -d` |
+| Add chaos tools | `COMPOSE_PROFILES=chaos docker compose -f compose.yaml -f compose.chaos.yaml up -d --wait` |
 | Everything | `COMPOSE_PROFILES=obs,analytics,chaos docker compose up -d --wait` |
 | Three workers | `docker compose up -d --scale monitor-worker=3` |
 | Full reset, including data | `docker compose down -v` |

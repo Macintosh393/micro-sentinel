@@ -49,7 +49,18 @@ export const configSchema = z.object({
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://lgtm:4318` | all | |
 | `OTEL_SDK_DISABLED` | `true` unless the `obs` profile is on | all | |
 | `RETRY_TIERS_SCALE` | `1` | consumers | **Dev/test only.** Multiplies all wait-queue delays (`0.1` → 21 min schedule runs in ~2 min). Because queue TTLs are immutable, a scaled tier is a differently named queue (`…retry.1m@0.1`) |
-| `CONSUMER_ACK_DELAY_MS` | `0` | consumers | **Lab only.** Waits this long between commit and broker-ack so a `docker kill` can land in the gap ([break-it lab](../roadmap/break-it-lab.md)). Refused at startup if `NODE_ENV=production` |
+| `CONSUMER_ACK_DELAY_MS` | `0` | consumers | **Lab only.** Waits this long between commit and broker-ack so a `docker kill` can land in the gap ([break-it lab](../roadmap/break-it-lab.md)) |
+
+### Lab flags
+
+Used only by the [break-it lab](../roadmap/break-it-lab.md). Every service refuses to start if any of them is set while `NODE_ENV=production`, so they cannot leak into a real deployment by accident.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `LAB_DEBUG_ENDPOINTS` | `false` | Exposes `POST /debug/block?ms=` (synchronous busy-wait) on monitor-worker |
+| `LAB_READ_BODY` | `false` | monitor-worker buffers and parses the response body (to demonstrate why it normally does not) |
+| `LAB_THROW_ON_ZERO_UUID` | `false` | notification's planner throws for a page whose `userId` is the all-zero UUID |
+| `LAB_EXIT_ON_ZERO_UUID` | `false` | Same, but calls `process.exit(1)` |
 
 ## Per service
 
