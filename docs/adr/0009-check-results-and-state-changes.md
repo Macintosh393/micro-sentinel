@@ -54,7 +54,7 @@ The brief says Monitor emits "site down" signals. That hides three decisions:
 | Event | When | Volume | Consumers |
 |-------|------|--------|-----------|
 | `monitor.check.completed.v1` | After every check | ~17/s at design scale | analytics (via stream `ms.archive.checks`) |
-| `monitor.state.changed.v1` | Only when the confirmed monitor status changes | A few per monitor per month | incident, realtime, analytics |
+| `monitor.state.changed.v1` | Only when the confirmed monitor status changes | A few per monitor per month | incident, realtime (also retained in `ms.archive.lifecycle`) |
 
 **Confirmation rules** (the state diagram is in the [domain model](../02-domain-model.md)):
 

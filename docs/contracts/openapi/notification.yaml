@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel notification service
+  version: 1.0.0
+  description: >
+    Contact methods (per user), organization channels, and the delivery log.
+    Through the gateway, paths are prefixed with /api. Scoped to the token's organization.
+    Users manage their own contact methods. Channels and delivery retry require ADMIN or OWNER.
+servers:
+  - { url: 'http://notification:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway }
+security: [{ bearerAuth: [] }]
+tags: [{ name: contact-methods }, { name: channels }, { name: deliveries }]
+
+paths:
+  /v1/contact-methods:
+    get:
+      tags: [contact-methods]
+      summary: The current user's contact methods
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/ContactMethod' } } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [contact-methods]
+      summary: Add a contact method for the current user
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ContactMethodInput' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/ContactMethod' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code CONTACT_METHOD_EXISTS' }
+  /v1/contact-methods/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      tags: [contact-methods]
+      summary: Enable or disable a contact method
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [enabled], properties: { enabled: { type: boolean } } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/ContactMethod' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [contact-methods]
+      summary: Remove a contact method
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code DEFAULT_CONTACT_METHOD: the account email method can be disabled but not deleted' }
+  /v1/channels:
+    get:
+      tags: [channels]
+      summary: List organization channels
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Channel' } } } } } } }
+    post:
+      tags: [channels]
+      summary: Create an organization channel (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChannelInput' } } }
+      responses:
+        '201':
+          description: Created. For WEBHOOK channels the signing secret is returned once.
+          content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/Channel' }, { type: object, properties: { signingSecret: { type: string } } }] } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code CHANNEL_NAME_TAKEN' }
+        '422': { $ref: '#/components/responses/Unprocessable', description: 'code BLOCKED_TARGET: the URL fails the SSRF guard' }
+  /v1/channels/{id}:
+    parameters: [{ $ref: '#/components/parameters/ChannelId' }]
+    patch:
+      tags: [channels]
+      summary: Edit a channel (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                url: { type: string, format: uri }
+                eventTypes: { type: array, items: { $ref: '#/components/schemas/ChannelEventType' } }
+                enabled: { type: boolean }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Channel' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [channels]
+      summary: Delete a channel (ADMIN)
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/channels/{id}/test:
+    post:
+      tags: [channels]
+      summary: Send a test message through the channel now (ADMIN)
+      description: Synchronous single attempt with a 5 s timeout. Not recorded as a delivery.
+      parameters: [{ $ref: '#/components/parameters/ChannelId' }]
+      responses:
+        '200':
+          description: Attempt finished
+          content: { application/json: { schema: { type: object, required: [ok], properties: { ok: { type: boolean }, statusCode: { type: [integer, 'null'] }, error: { type: [string, 'null'] }, durationMs: { type: integer } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/deliveries:
+    get:
+      tags: [deliveries]
+      summary: Delivery log, newest first (keyset pagination)
+      parameters:
+        - { name: incidentId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/DeliveryStatus' } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Delivery' } }
+                  nextCursor: { type: [string, 'null'] }
+  /v1/deliveries/{id}/retry:
+    post:
+      tags: [deliveries]
+      summary: Redrive a DEAD delivery (ADMIN)
+      description: Resets attempts to 0, sets status PENDING and enqueues a new send command. Idempotent while PENDING.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '202': { description: Queued for sending, content: { application/json: { schema: { $ref: '#/components/schemas/Delivery' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code DELIVERY_NOT_DEAD: only DEAD deliveries can be retried' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    ChannelId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    ChannelEventType: { type: string, enum: [incident.opened.v1, incident.acknowledged.v1, incident.escalated.v1, incident.resolved.v1] }
+    DeliveryStatus: { type: string, enum: [PENDING, SENT, DEAD, CANCELLED] }
+    ContactMethodInput:
+      type: object
+      required: [type, target]
+      properties:
+        type: { type: string, enum: [EMAIL, SMS] }
+        target: { type: string, maxLength: 254, description: Email address, or phone number in E.164 format for SMS, examples: ['+37061234512'] }
+    ContactMethod:
+      allOf:
+        - $ref: '#/components/schemas/ContactMethodInput'
+        - { type: object, required: [id, enabled, isDefault], properties: { id: { type: string, format: uuid }, enabled: { type: boolean }, isDefault: { type: boolean } } }
+    ChannelInput:
+      type: object
+      required: [type, name, url]
+      properties:
+        type: { type: string, enum: [WEBHOOK, CHAT_WEBHOOK] }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        url: { type: string, format: uri, maxLength: 2048 }
+        eventTypes: { type: array, items: { $ref: '#/components/schemas/ChannelEventType' }, description: Defaults to all four }
+    Channel:
+      allOf:
+        - $ref: '#/components/schemas/ChannelInput'
+        - { type: object, required: [id, enabled, createdAt], properties: { id: { type: string, format: uuid }, enabled: { type: boolean }, createdAt: { type: string, format: date-time } } }
+    Delivery:
+      type: object
+      required: [id, incidentId, channelType, targetLabel, status, attempts, createdAt, sourceEventType]
+      properties:
+        id: { type: string, format: uuid }
+        incidentId: { type: string, format: uuid }
+        pageId: { type: [string, 'null'], format: uuid }
+        recipientUserId: { type: [string, 'null'], format: uuid }
+        sourceEventType: { type: string }
+        channelType: { type: string, enum: [EMAIL, SMS, WEBHOOK, CHAT_WEBHOOK] }
+        targetLabel: { type: string, description: Masked destination }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        attempts: { type: integer }
+        lastError: { type: [string, 'null'] }
+        lastAttemptAt: { type: [string, 'null'], format: date-time }
+        sentAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        instance: { type: string }
+        requestId: { type: string }
+        errors: { type: array, items: { type: object, required: [field, message], properties: { field: { type: string }, message: { type: string } } } }
+  responses:
+    ValidationFailed: { description: 'code VALIDATION_FAILED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: 'code UNAUTHENTICATED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Forbidden: { description: 'code FORBIDDEN', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'code NOT_FOUND', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Conflict, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unprocessable: { description: Semantically invalid, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }

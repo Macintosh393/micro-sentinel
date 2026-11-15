@@ -35,7 +35,7 @@ All events go to the topic exchange `ms.events` with routing key = event type. F
 
 | # | Event | Producer | Consumers (queue) | Why async |
 |---|-------|----------|-------------------|-----------|
-| A1 | `monitor.state.changed.v1` | monitor | incident (`incident.monitor-events`), realtime, analytics | Incident must not be required for checks to continue; signals must survive incident being down |
+| A1 | `monitor.state.changed.v1` | monitor | incident (`incident.monitor-events`), realtime | Incident must not be required for checks to continue; signals must survive incident being down |
 | A2 | `monitor.check.completed.v1` | monitor | analytics (stream) | High volume, nobody is waiting |
 | A3 | `monitor.definition.changed.v1` | monitor | incident (`incident.monitor-events`), analytics | Replicas and cleanup |
 | A4 | `incident.opened.v1`, `incident.acknowledged.v1`, `incident.escalated.v1`, `incident.resolved.v1` | incident | notification (`notification.incident-events`), realtime, analytics | Several independent reactions to one fact (pub/sub) |
@@ -65,11 +65,11 @@ flowchart LR
   P1 & P2 & P3 & P4 --> EX
 
   EX -->|"monitor.state.changed.v1<br/>monitor.definition.changed.v1"| Q1["incident.monitor-events<br/>quorum, single active consumer"]
-  EX -->|"auth.#"| Q2[incident.auth-events]
-  EX -->|"notification.delivery.#"| Q3[incident.notification-events]
-  EX -->|"incident.#"| Q4[notification.incident-events]
+  EX -->|"auth.* events"| Q2[incident.auth-events]
+  EX -->|"notification.delivery.* events"| Q3[incident.notification-events]
+  EX -->|"incident.* events"| Q4[notification.incident-events]
   EX -->|"auth.user.changed.v1"| Q5[notification.auth-events]
-  EX -->|"incident.#<br/>monitor.state.changed.v1"| Q6["realtime.events.&lt;instance&gt;<br/>exclusive, auto-delete"]
+  EX -->|"incident lifecycle events<br/>monitor.state.changed.v1"| Q6["realtime.events.&lt;instance&gt;<br/>exclusive, auto-delete"]
   EX -->|"monitor.check.completed.v1"| S1[("ms.archive.checks<br/>stream, 35 days")]
   EX -->|"everything except checks"| S2[("ms.archive.lifecycle<br/>stream, long retention")]
 

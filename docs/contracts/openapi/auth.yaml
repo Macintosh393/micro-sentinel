@@ -1,0 +1,276 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel auth service
+  version: 1.0.0
+  description: >
+    Users, organizations, memberships, API keys, tokens and the JWKS.
+    Paths are as the service sees them. Through the gateway they are prefixed with /api
+    (for example /api/v1/auth/login), except /.well-known/jwks.json.
+    All errors are RFC 9457 problem details with a stable `code`.
+servers:
+  - { url: 'http://auth:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway }
+security: [{ bearerAuth: [] }]
+tags: [{ name: session }, { name: users }, { name: organization }, { name: api-keys }, { name: keys }]
+
+paths:
+  /v1/auth/register:
+    post:
+      tags: [session]
+      summary: Create a user and their organization (the user becomes OWNER)
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterRequest' } } }
+      responses:
+        '201':
+          description: Registered and logged in. Sets the ms_refresh cookie.
+          headers: { Set-Cookie: { schema: { type: string }, description: 'ms_refresh=…; HttpOnly; SameSite=Strict; Path=/api/v1/auth' } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code EMAIL_TAKEN' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/login:
+    post:
+      tags: [session]
+      summary: Exchange email and password for a session
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+      responses:
+        '200':
+          description: Logged in. Sets the ms_refresh cookie.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized', description: 'code INVALID_CREDENTIALS (same response for unknown email and wrong password)' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /v1/auth/refresh:
+    post:
+      tags: [session]
+      summary: Rotate the refresh cookie and return a new access token
+      description: Authenticated by the ms_refresh cookie, not by a bearer token. No request body.
+      security: [{ refreshCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      responses:
+        '200':
+          description: New access token. Sets a new ms_refresh cookie.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Session' } } }
+        '401': { $ref: '#/components/responses/Unauthorized', description: 'code REFRESH_TOKEN_INVALID or REFRESH_TOKEN_REUSED (family revoked). Clears the cookie.' }
+        '403': { $ref: '#/components/responses/Forbidden', description: 'code CSRF_CHECK_FAILED' }
+  /v1/auth/logout:
+    post:
+      tags: [session]
+      summary: Revoke the refresh token family and clear the cookie
+      security: [{ refreshCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/CsrfHeader' }]
+      responses:
+        '204': { description: Logged out (also returned when no valid cookie was present) }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/auth/token:
+    post:
+      tags: [session]
+      summary: Exchange an API key for a short-lived access token
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [apiKey], properties: { apiKey: { type: string, examples: ['msk_a1b2c3d4e5f6_…'] } } } } }
+      responses:
+        '200':
+          description: Access token with sub = apikey:<id>
+          content: { application/json: { schema: { type: object, required: [accessToken, expiresIn], properties: { accessToken: { type: string }, expiresIn: { type: integer, examples: [900] } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized', description: 'code API_KEY_INVALID' }
+  /v1/users/me:
+    get:
+      tags: [users]
+      summary: The current user with organization and role
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [users]
+      summary: Update own profile
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { displayName: { type: string, minLength: 1, maxLength: 100 } } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+  /v1/orgs/current:
+    get:
+      tags: [organization]
+      summary: The organization of the token
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }
+  /v1/orgs/current/members:
+    get:
+      tags: [organization]
+      summary: List members
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Member' } } } } } } }
+    post:
+      tags: [organization]
+      summary: Add a member by creating their account (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AddMemberRequest' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Member' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code EMAIL_TAKEN' }
+  /v1/orgs/current/members/{userId}:
+    parameters: [{ name: userId, in: path, required: true, schema: { type: string, format: uuid } }]
+    patch:
+      tags: [organization]
+      summary: Change a member's role (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [role], properties: { role: { type: string, enum: [ADMIN, MEMBER] } } } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Member' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code OWNER_IMMUTABLE' }
+    delete:
+      tags: [organization]
+      summary: Remove a member (ADMIN). Revokes their refresh tokens.
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code OWNER_IMMUTABLE' }
+  /v1/api-keys:
+    get:
+      tags: [api-keys]
+      summary: List API keys (ADMIN). Never returns the secret.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/ApiKey' } } } } } } }
+    post:
+      tags: [api-keys]
+      summary: Create an API key (ADMIN). The full key is returned once.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name, role], properties: { name: { type: string, minLength: 1, maxLength: 100 }, role: { type: string, enum: [ADMIN, MEMBER] } } } } }
+      responses:
+        '201':
+          description: Created
+          content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/ApiKey' }, { type: object, required: [key], properties: { key: { type: string, description: Shown only in this response } } }] } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/api-keys/{id}:
+    delete:
+      tags: [api-keys]
+      summary: Revoke an API key (ADMIN)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /.well-known/jwks.json:
+    get:
+      tags: [keys]
+      summary: Public keys for verifying access tokens
+      security: []
+      responses:
+        '200':
+          description: JSON Web Key Set. Cacheable for 10 minutes.
+          headers: { Cache-Control: { schema: { type: string, examples: ['public, max-age=600'] } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items: { type: object, required: [kty, kid, use, alg, n, e], properties: { kty: { const: RSA }, kid: { type: string }, use: { const: sig }, alg: { const: RS256 }, n: { type: string }, e: { type: string } } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    refreshCookie: { type: apiKey, in: cookie, name: ms_refresh }
+  parameters:
+    CsrfHeader: { name: X-MS-CSRF, in: header, required: true, schema: { type: string, const: '1' }, description: Required on cookie-authenticated endpoints }
+  schemas:
+    Role: { type: string, enum: [OWNER, ADMIN, MEMBER] }
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName, organizationName]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 128 }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        organizationName: { type: string, minLength: 1, maxLength: 100 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties: { email: { type: string, format: email }, password: { type: string } }
+    Session:
+      type: object
+      required: [accessToken, expiresIn, user]
+      properties:
+        accessToken: { type: string, description: RS256 JWT }
+        expiresIn: { type: integer, description: Seconds until the access token expires, examples: [900] }
+        user: { $ref: '#/components/schemas/CurrentUser' }
+    CurrentUser:
+      type: object
+      required: [id, email, displayName, orgId, orgName, role]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        orgId: { type: string, format: uuid }
+        orgName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+    Organization:
+      type: object
+      required: [id, name, createdAt]
+      properties: { id: { type: string, format: uuid }, name: { type: string }, createdAt: { type: string, format: date-time } }
+    Member:
+      type: object
+      required: [userId, email, displayName, role, active]
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        active: { type: boolean }
+    AddMemberRequest:
+      type: object
+      required: [email, displayName, role, temporaryPassword]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        role: { type: string, enum: [ADMIN, MEMBER] }
+        temporaryPassword: { type: string, minLength: 12, maxLength: 128 }
+    ApiKey:
+      type: object
+      required: [id, name, keyPrefix, role, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        keyPrefix: { type: string }
+        role: { type: string, enum: [ADMIN, MEMBER] }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, description: Stable machine-readable error code }
+        detail: { type: string }
+        instance: { type: string }
+        requestId: { type: string }
+        errors: { type: array, items: { type: object, required: [field, message], properties: { field: { type: string }, message: { type: string } } } }
+  responses:
+    ValidationFailed: { description: 'code VALIDATION_FAILED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: Missing or invalid credentials, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Forbidden: { description: 'code FORBIDDEN: role not sufficient', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'code NOT_FOUND (also returned for resources of another organization)', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Conflict, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    TooManyRequests:
+      description: 'code RATE_LIMITED (produced by the gateway)'
+      headers: { Retry-After: { schema: { type: integer } } }
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }

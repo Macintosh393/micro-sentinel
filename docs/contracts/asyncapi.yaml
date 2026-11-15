@@ -1,0 +1,347 @@
+asyncapi: 3.0.0
+info:
+  title: MicroSentinel events
+  version: 1.0.0
+  description: >
+    Events exchanged between MicroSentinel services over RabbitMQ.
+    Human-readable catalog: event-catalog.md. Envelope and compatibility rules: versioning.md.
+    This document describes the system as a whole: each operation's `x-producer` and
+    `x-consumers` name the services involved.
+defaultContentType: application/json
+
+servers:
+  local:
+    host: rabbitmq:5672
+    protocol: amqp
+    protocolVersion: 0.9.1
+    description: Single-node RabbitMQ 4.3 in Docker Compose.
+
+channels:
+  authOrgCreated:
+    address: auth.org.created.v1
+    messages: { event: { $ref: '#/components/messages/AuthOrgCreated' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  authUserChanged:
+    address: auth.user.changed.v1
+    messages: { event: { $ref: '#/components/messages/AuthUserChanged' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  authMembershipChanged:
+    address: auth.membership.changed.v1
+    messages: { event: { $ref: '#/components/messages/AuthMembershipChanged' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  monitorDefinitionChanged:
+    address: monitor.definition.changed.v1
+    messages: { event: { $ref: '#/components/messages/MonitorDefinitionChanged' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  monitorCheckCompleted:
+    address: monitor.check.completed.v1
+    messages: { event: { $ref: '#/components/messages/MonitorCheckCompleted' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  monitorStateChanged:
+    address: monitor.state.changed.v1
+    messages: { event: { $ref: '#/components/messages/MonitorStateChanged' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  incidentOpened:
+    address: incident.opened.v1
+    messages: { event: { $ref: '#/components/messages/IncidentOpened' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  incidentAcknowledged:
+    address: incident.acknowledged.v1
+    messages: { event: { $ref: '#/components/messages/IncidentAcknowledged' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  incidentEscalated:
+    address: incident.escalated.v1
+    messages: { event: { $ref: '#/components/messages/IncidentEscalated' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  incidentResolved:
+    address: incident.resolved.v1
+    messages: { event: { $ref: '#/components/messages/IncidentResolved' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  incidentPageRequested:
+    address: incident.page.requested.v1
+    messages: { event: { $ref: '#/components/messages/IncidentPageRequested' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  notificationDeliverySucceeded:
+    address: notification.delivery.succeeded.v1
+    messages: { event: { $ref: '#/components/messages/NotificationDeliverySucceeded' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  notificationDeliveryFailed:
+    address: notification.delivery.failed.v1
+    messages: { event: { $ref: '#/components/messages/NotificationDeliveryFailed' } }
+    bindings: { $ref: '#/components/channelBindings/eventsExchange' }
+  notificationDeliverySend:
+    address: delivery.send
+    description: Internal command. Private to the notification service.
+    messages: { command: { $ref: '#/components/messages/NotificationDeliverySend' } }
+    bindings:
+      amqp: { is: routingKey, exchange: { name: notification.work, type: direct, durable: true, autoDelete: false }, bindingVersion: 0.3.0 }
+
+operations:
+  publishAuthOrgCreated: { action: send, channel: { $ref: '#/channels/authOrgCreated' }, x-producer: auth, x-consumers: [incident] }
+  publishAuthUserChanged: { action: send, channel: { $ref: '#/channels/authUserChanged' }, x-producer: auth, x-consumers: [incident, notification] }
+  publishAuthMembershipChanged: { action: send, channel: { $ref: '#/channels/authMembershipChanged' }, x-producer: auth, x-consumers: [incident] }
+  publishMonitorDefinitionChanged: { action: send, channel: { $ref: '#/channels/monitorDefinitionChanged' }, x-producer: monitor, x-consumers: [incident, analytics] }
+  publishMonitorCheckCompleted: { action: send, channel: { $ref: '#/channels/monitorCheckCompleted' }, x-producer: monitor, x-consumers: [analytics] }
+  publishMonitorStateChanged: { action: send, channel: { $ref: '#/channels/monitorStateChanged' }, x-producer: monitor, x-consumers: [incident, realtime] }
+  publishIncidentOpened: { action: send, channel: { $ref: '#/channels/incidentOpened' }, x-producer: incident, x-consumers: [notification, realtime, analytics] }
+  publishIncidentAcknowledged: { action: send, channel: { $ref: '#/channels/incidentAcknowledged' }, x-producer: incident, x-consumers: [notification, realtime, analytics] }
+  publishIncidentEscalated: { action: send, channel: { $ref: '#/channels/incidentEscalated' }, x-producer: incident, x-consumers: [notification, realtime, analytics] }
+  publishIncidentResolved: { action: send, channel: { $ref: '#/channels/incidentResolved' }, x-producer: incident, x-consumers: [notification, realtime, analytics] }
+  publishIncidentPageRequested: { action: send, channel: { $ref: '#/channels/incidentPageRequested' }, x-producer: incident, x-consumers: [notification] }
+  publishNotificationDeliverySucceeded: { action: send, channel: { $ref: '#/channels/notificationDeliverySucceeded' }, x-producer: notification, x-consumers: [incident] }
+  publishNotificationDeliveryFailed: { action: send, channel: { $ref: '#/channels/notificationDeliveryFailed' }, x-producer: notification, x-consumers: [incident] }
+  sendNotificationDeliverySend: { action: send, channel: { $ref: '#/channels/notificationDeliverySend' }, x-producer: notification, x-consumers: [notification] }
+
+components:
+  channelBindings:
+    eventsExchange:
+      amqp: { is: routingKey, exchange: { name: ms.events, type: topic, durable: true, autoDelete: false }, bindingVersion: 0.3.0 }
+
+  messageTraits:
+    envelope:
+      contentType: application/json
+      headers:
+        type: object
+        properties:
+          traceparent: { type: string, description: W3C Trace Context of the publish span }
+          tracestate: { type: string }
+          x-ms-attempt: { type: integer, minimum: 1, description: Attempt number; absent means 1 }
+          x-ms-last-error: { type: string, maxLength: 500 }
+      bindings:
+        amqp: { deliveryMode: 2, contentEncoding: utf-8, bindingVersion: 0.3.0 }
+
+  messages:
+    AuthOrgCreated:
+      name: auth.org.created.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: auth.org.created.v1 }, data: { $ref: '#/components/schemas/AuthOrgCreatedData' } } }] }
+    AuthUserChanged:
+      name: auth.user.changed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: auth.user.changed.v1 }, data: { $ref: '#/components/schemas/AuthUserChangedData' } } }] }
+    AuthMembershipChanged:
+      name: auth.membership.changed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: auth.membership.changed.v1 }, data: { $ref: '#/components/schemas/AuthMembershipChangedData' } } }] }
+    MonitorDefinitionChanged:
+      name: monitor.definition.changed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: monitor.definition.changed.v1 }, data: { $ref: '#/components/schemas/MonitorDefinitionChangedData' } } }] }
+    MonitorCheckCompleted:
+      name: monitor.check.completed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: monitor.check.completed.v1 }, data: { $ref: '#/components/schemas/MonitorCheckCompletedData' } } }] }
+    MonitorStateChanged:
+      name: monitor.state.changed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: monitor.state.changed.v1 }, data: { $ref: '#/components/schemas/MonitorStateChangedData' } } }] }
+    IncidentOpened:
+      name: incident.opened.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: incident.opened.v1 }, data: { $ref: '#/components/schemas/IncidentOpenedData' } } }] }
+    IncidentAcknowledged:
+      name: incident.acknowledged.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: incident.acknowledged.v1 }, data: { $ref: '#/components/schemas/IncidentAcknowledgedData' } } }] }
+    IncidentEscalated:
+      name: incident.escalated.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: incident.escalated.v1 }, data: { $ref: '#/components/schemas/IncidentEscalatedData' } } }] }
+    IncidentResolved:
+      name: incident.resolved.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: incident.resolved.v1 }, data: { $ref: '#/components/schemas/IncidentResolvedData' } } }] }
+    IncidentPageRequested:
+      name: incident.page.requested.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: incident.page.requested.v1 }, data: { $ref: '#/components/schemas/IncidentPageRequestedData' } } }] }
+    NotificationDeliverySucceeded:
+      name: notification.delivery.succeeded.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: notification.delivery.succeeded.v1 }, data: { $ref: '#/components/schemas/NotificationDeliverySucceededData' } } }] }
+    NotificationDeliveryFailed:
+      name: notification.delivery.failed.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: notification.delivery.failed.v1 }, data: { $ref: '#/components/schemas/NotificationDeliveryFailedData' } } }] }
+    NotificationDeliverySend:
+      name: notification.delivery.send.v1
+      traits: [{ $ref: '#/components/messageTraits/envelope' }]
+      payload: { allOf: [{ $ref: '#/components/schemas/Envelope' }, { type: object, properties: { type: { const: notification.delivery.send.v1 }, data: { type: object, required: [deliveryId], properties: { deliveryId: { $ref: '#/components/schemas/Uuid' } } } } }] }
+
+  schemas:
+    Uuid: { type: string, format: uuid }
+    Timestamp: { type: string, format: date-time, description: RFC 3339, UTC, millisecond precision }
+    NullableUuid: { type: [string, 'null'], format: uuid }
+    MonitorStatus: { type: string, enum: [UNKNOWN, UP, DOWN, PAUSED], description: Open enum }
+    FailureReason: { type: [string, 'null'], enum: [TIMEOUT, DNS_ERROR, CONNECTION_ERROR, TLS_ERROR, UNEXPECTED_STATUS, BLOCKED_TARGET, null], description: Open enum }
+    ChannelType: { type: string, enum: [EMAIL, SMS, WEBHOOK, CHAT_WEBHOOK], description: Open enum }
+
+    Envelope:
+      type: object
+      required: [id, type, source, time, subject, orgId, sequence, data]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid', description: Idempotency key. Identical on republish. }
+        type: { type: string, description: Event type including major version. Equals the routing key. }
+        source: { type: string, enum: [auth, monitor, incident, notification] }
+        time: { $ref: '#/components/schemas/Timestamp' }
+        subject: { $ref: '#/components/schemas/Uuid', description: Aggregate ID. The ordering key. }
+        orgId: { $ref: '#/components/schemas/NullableUuid' }
+        sequence: { type: [integer, 'null'], description: Per-subject version; null when ordering is not required. }
+        data: { type: object }
+
+    AuthOrgCreatedData:
+      type: object
+      required: [orgId, name, ownerUserId, createdAt]
+      properties:
+        orgId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        ownerUserId: { $ref: '#/components/schemas/Uuid' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    AuthUserChangedData:
+      type: object
+      required: [userId, email, displayName, active, version]
+      properties:
+        userId: { $ref: '#/components/schemas/Uuid' }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        active: { type: boolean }
+        version: { type: integer, minimum: 1 }
+    AuthMembershipChangedData:
+      type: object
+      required: [orgId, userId, role, version]
+      properties:
+        orgId: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        role: { type: [string, 'null'], enum: [OWNER, ADMIN, MEMBER, null], description: null means no longer a member }
+        version: { type: integer, minimum: 1 }
+    MonitorDefinitionChangedData:
+      type: object
+      required: [monitorId, name, url, method, intervalSeconds, paused, deleted, definitionVersion]
+      properties:
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        url: { type: string, format: uri }
+        method: { type: string, enum: [GET, HEAD] }
+        intervalSeconds: { type: integer }
+        paused: { type: boolean }
+        deleted: { type: boolean }
+        definitionVersion: { type: integer, minimum: 1 }
+    MonitorCheckCompletedData:
+      type: object
+      required: [checkId, monitorId, checkedAt, outcome, statusCode, latencyMs, failureReason, workerId]
+      properties:
+        checkId: { $ref: '#/components/schemas/Uuid' }
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        checkedAt: { $ref: '#/components/schemas/Timestamp' }
+        outcome: { type: string, enum: [SUCCESS, FAILURE] }
+        statusCode: { type: [integer, 'null'] }
+        latencyMs: { type: [integer, 'null'] }
+        failureReason: { $ref: '#/components/schemas/FailureReason' }
+        workerId: { type: string }
+    MonitorStateChangedData:
+      type: object
+      required: [monitorId, monitorName, url, from, to, stateVersion, changedAt, cause]
+      properties:
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        monitorName: { type: string }
+        url: { type: string, format: uri }
+        from: { $ref: '#/components/schemas/MonitorStatus' }
+        to: { $ref: '#/components/schemas/MonitorStatus' }
+        stateVersion: { type: integer, minimum: 1 }
+        changedAt: { $ref: '#/components/schemas/Timestamp' }
+        cause:
+          type: [object, 'null']
+          description: Set when `to` is DOWN.
+          required: [checkId, failureReason, statusCode, consecutiveFailures]
+          properties:
+            checkId: { $ref: '#/components/schemas/Uuid' }
+            failureReason: { $ref: '#/components/schemas/FailureReason' }
+            statusCode: { type: [integer, 'null'] }
+            consecutiveFailures: { type: integer }
+    IncidentCause:
+      type: object
+      required: [failureReason, statusCode]
+      properties:
+        failureReason: { $ref: '#/components/schemas/FailureReason' }
+        statusCode: { type: [integer, 'null'] }
+    IncidentOpenedData:
+      type: object
+      required: [incidentId, monitorId, monitorName, monitorUrl, openedAt, cause, escalationLevel, incidentVersion]
+      properties:
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        monitorName: { type: string }
+        monitorUrl: { type: string, format: uri }
+        openedAt: { $ref: '#/components/schemas/Timestamp' }
+        cause: { $ref: '#/components/schemas/IncidentCause' }
+        escalationLevel: { type: integer, minimum: 1 }
+        incidentVersion: { type: integer, minimum: 1 }
+    IncidentAcknowledgedData:
+      type: object
+      required: [incidentId, monitorId, monitorName, acknowledgedAt, acknowledgedBy, incidentVersion]
+      properties:
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        monitorName: { type: string }
+        acknowledgedAt: { $ref: '#/components/schemas/Timestamp' }
+        acknowledgedBy: { $ref: '#/components/schemas/Uuid' }
+        incidentVersion: { type: integer }
+    IncidentEscalatedData:
+      type: object
+      required: [incidentId, monitorId, monitorName, fromLevel, toLevel, escalatedAt, incidentVersion]
+      properties:
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        monitorName: { type: string }
+        fromLevel: { type: integer }
+        toLevel: { type: integer }
+        escalatedAt: { $ref: '#/components/schemas/Timestamp' }
+        incidentVersion: { type: integer }
+    IncidentResolvedData:
+      type: object
+      required: [incidentId, monitorId, monitorName, resolvedAt, resolution, resolvedBy, incidentVersion]
+      properties:
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        monitorId: { $ref: '#/components/schemas/Uuid' }
+        monitorName: { type: string }
+        resolvedAt: { $ref: '#/components/schemas/Timestamp' }
+        resolution: { type: string, enum: [RECOVERED, MANUAL, MONITOR_PAUSED, MONITOR_DELETED] }
+        resolvedBy: { $ref: '#/components/schemas/NullableUuid' }
+        incidentVersion: { type: integer }
+    IncidentPageRequestedData:
+      type: object
+      required: [pageId, incidentId, userId, escalationLevel, reason, requestedAt, incident]
+      properties:
+        pageId: { $ref: '#/components/schemas/Uuid' }
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        escalationLevel: { type: integer, minimum: 1 }
+        reason: { type: string, enum: [OPENED, ESCALATED] }
+        requestedAt: { $ref: '#/components/schemas/Timestamp' }
+        incident:
+          type: object
+          required: [monitorName, monitorUrl, openedAt, failureReason]
+          properties:
+            monitorName: { type: string }
+            monitorUrl: { type: string, format: uri }
+            openedAt: { $ref: '#/components/schemas/Timestamp' }
+            failureReason: { $ref: '#/components/schemas/FailureReason' }
+    DeliveryBase:
+      type: object
+      required: [deliveryId, incidentId, pageId, recipientUserId, channelType, targetLabel, attempts]
+      properties:
+        deliveryId: { $ref: '#/components/schemas/Uuid' }
+        incidentId: { $ref: '#/components/schemas/Uuid' }
+        pageId: { $ref: '#/components/schemas/NullableUuid' }
+        recipientUserId: { $ref: '#/components/schemas/NullableUuid' }
+        channelType: { $ref: '#/components/schemas/ChannelType' }
+        targetLabel: { type: string, description: Masked destination, safe to display }
+        attempts: { type: integer, minimum: 1 }
+    NotificationDeliverySucceededData:
+      allOf:
+        - $ref: '#/components/schemas/DeliveryBase'
+        - { type: object, required: [sentAt], properties: { sentAt: { $ref: '#/components/schemas/Timestamp' } } }
+    NotificationDeliveryFailedData:
+      allOf:
+        - $ref: '#/components/schemas/DeliveryBase'
+        - { type: object, required: [lastError, failedAt], properties: { lastError: { type: string }, failedAt: { $ref: '#/components/schemas/Timestamp' } } }

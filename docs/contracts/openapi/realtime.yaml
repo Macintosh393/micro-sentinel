@@ -1,0 +1,94 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel realtime service
+  version: 1.0.0
+  description: >
+    One endpoint: a Server-Sent Events stream of change hints for the token's organization.
+    Through the gateway the path is /api/v1/realtime/stream. Hints tell the browser *that*
+    something changed; the browser then refetches through the REST APIs. Delivery is
+    best-effort: there is no replay, and clients must refetch after every (re)connect.
+servers:
+  - { url: 'http://realtime:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway }
+security: [{ bearerAuth: [] }]
+
+paths:
+  /v1/realtime/stream:
+    get:
+      summary: Open the event stream
+      description: |
+        Long-lived response. Read it with `fetch` and a stream reader so that the
+        Authorization header can be sent (the browser's EventSource API cannot set headers).
+
+        Wire format (text/event-stream):
+
+            event: ready
+            data: {"connectionId":"c-7f3a","heartbeatSeconds":15}
+
+            event: incident.changed
+            id: 019a7c40-9d00-7a11-8b22-000000000c01
+            data: {"incidentId":"019a7c40-1a2b-7c3d-8e4f-000000000777","status":"ACKNOWLEDGED","version":2,"cause":"incident.acknowledged.v1"}
+
+            event: monitor.status.changed
+            id: 019a7c3e-5b1a-7c2e-9f00-3d2b8a4e6f10
+            data: {"monitorId":"019a7b10-0c55-7d1e-8a11-5e0f2c9b7a01","status":"DOWN","stateVersion":12}
+
+            : ping
+
+        - `ready` is sent once, immediately after the connection is accepted.
+        - A comment line `: ping` is sent every 15 seconds.
+        - `id` is the envelope id of the source event (useful for logging; not for resuming).
+        - The server ends the stream when the access token expires; reconnect with a new token.
+        - Unknown event names and unknown fields must be ignored by clients.
+      responses:
+        '200':
+          description: Stream opened
+          headers:
+            Cache-Control: { schema: { type: string, const: no-cache } }
+            X-Accel-Buffering: { schema: { type: string, const: 'no' }, description: Tells proxies not to buffer }
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401':
+          description: 'code UNAUTHENTICATED: missing, invalid or expired token'
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '503':
+          description: 'code TOO_MANY_CONNECTIONS (more than 5 streams for one user) or service not ready'
+          headers: { Retry-After: { schema: { type: integer } } }
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    ReadyEvent:
+      type: object
+      required: [connectionId, heartbeatSeconds]
+      properties:
+        connectionId: { type: string }
+        heartbeatSeconds: { type: integer }
+    IncidentChangedEvent:
+      type: object
+      required: [incidentId, status, version, cause]
+      properties:
+        incidentId: { type: string, format: uuid }
+        status: { type: string, enum: [OPEN, ACKNOWLEDGED, RESOLVED] }
+        version: { type: integer }
+        cause: { type: string, description: Source event type, examples: [incident.opened.v1] }
+    MonitorStatusChangedEvent:
+      type: object
+      required: [monitorId, status, stateVersion]
+      properties:
+        monitorId: { type: string, format: uuid }
+        status: { type: string, enum: [UNKNOWN, UP, DOWN, PAUSED] }
+        stateVersion: { type: integer }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        requestId: { type: string }

@@ -1,0 +1,5 @@
+# Keep LF line endings in the repository and working tree.
+# Shell scripts and config files with CRLF fail inside Linux containers.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
