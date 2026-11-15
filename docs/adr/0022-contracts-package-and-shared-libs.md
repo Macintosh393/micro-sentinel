@@ -8,7 +8,7 @@
 
 A monorepo makes sharing code trivial ([ADR-0003](0003-monorepo-pnpm-workspaces.md)). That is the danger. Every shared import is a compile-time dependency between services. Enough of them and the services can no longer be changed, built or deployed independently: a **distributed monolith**, with the costs of both architectures.
 
-Two specific questions: do event types live in a shared `contracts` package, and what else may be shared?
+Two specific questions: do event types live in a shared `contracts` package, and what else may be shared? How contracts may change over time is covered in [schema evolution and versioning](../learning/concepts/schema-evolution.md).
 
 ## Decision drivers
 

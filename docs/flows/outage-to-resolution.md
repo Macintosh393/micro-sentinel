@@ -128,7 +128,7 @@ Part 4, analytics: `ms.archive.checks` and `ms.archive.lifecycle` deliver everyt
 
 ## Expected trace (Phase 4)
 
-One trace from the third failed check to the delivered email. The outbox and the broker add gaps, shown as `…`.
+One trace from the third failed check to the delivered email. The outbox and the broker add gaps, shown as `…`. How the context gets across those gaps: [distributed tracing](../learning/concepts/distributed-tracing.md).
 
 ```
 monitor-worker  monitor.check                         (root)       ~15 ms

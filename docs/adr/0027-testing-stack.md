@@ -6,7 +6,7 @@
 
 ## Context
 
-A distributed system fails at its seams: a query that is wrong only against real PostgreSQL, a consumer that mishandles redelivery, a producer that renames a field. The test strategy has to cover those seams without making every test slow. Tool choices: the test runner for backend and frontend, how to test against real infrastructure, how to check event contracts between services, and how to test the UI.
+A distributed system fails at its seams: a query that is wrong only against real PostgreSQL, a consumer that mishandles redelivery, a producer that renames a field. Concept background: [contract testing](../learning/concepts/contract-testing.md). The test strategy has to cover those seams without making every test slow. Tool choices: the test runner for backend and frontend, how to test against real infrastructure, how to check event contracts between services, and how to test the UI.
 
 ## Decision drivers
 

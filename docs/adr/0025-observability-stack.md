@@ -12,7 +12,7 @@ One outage touches a worker, the broker, incident, notification, an SMTP server 
 - **Metrics**: numbers over time (rates, errors, durations, queue depths).
 - **Traces**: the path of one operation across services, as a tree of timed **spans**.
 
-Two decisions: how services are **instrumented**, and what **backend** stores and displays the signals within the memory budget.
+Two decisions: how services are **instrumented**, and what **backend** stores and displays the signals within the memory budget. Concept background: [distributed tracing and context propagation](../learning/concepts/distributed-tracing.md).
 
 ## Decision drivers
 

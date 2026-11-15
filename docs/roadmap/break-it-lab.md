@@ -7,6 +7,7 @@ Deliberate failure experiments. Each one states a **hypothesis**, how to **induc
 - Lab flags in `.env` (never outside the lab): `ALLOW_FAST_INTERVALS=true`, `RETRY_TIERS_SCALE=0.1`, `LAB_DEBUG_ENDPOINTS=true`, `CONSUMER_ACK_DELAY_MS=0` (raised per experiment) ([configuration](../cross-cutting/configuration.md)).
 - Chaos profile: `COMPOSE_PROFILES=chaos docker compose -f compose.yaml -f compose.chaos.yaml up -d --wait`. `compose.chaos.yaml` routes three connections through Toxiproxy: incident → PostgreSQL (`toxiproxy:15432`), notification → dev-stubs (`toxiproxy:13000`), monitor-worker → flaky-target (`toxiproxy:13001`). Toxics are added with Toxiproxy's HTTP API on `localhost:8474`.
 - Have open: RabbitMQ UI (`:15672`), Mailpit (`:8025`), dev-stubs (`:8090`), Grafana (`:3030`, Phase 4), the app (`:8080`).
+- Metric names below (`consumer.duplicates`, `monitor.lease.fenced`, …) are exported from Phase 4. Before that, the same counters are emitted as structured log lines with the same names, so `docker compose logs <service> | grep <name>` works in Phases 2–3.
 - Shorthand: `down checkout` = `curl -X PUT localhost:8091/control/checkout -H 'content-type: application/json' -d '{"mode":"down"}'`.
 
 ## Index
