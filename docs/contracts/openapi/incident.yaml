@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel incident service
+  version: 1.0.0
+  description: >
+    Incidents and their timeline, on-call schedules and the escalation policy.
+    Through the gateway, paths are prefixed with /api. Scoped to the token's organization.
+    Any member may read, acknowledge and resolve. Schedules and the policy require ADMIN or OWNER.
+servers:
+  - { url: 'http://incident:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway }
+security: [{ bearerAuth: [] }]
+tags: [{ name: incidents }, { name: on-call }, { name: internal }]
+
+paths:
+  /v1/incidents:
+    get:
+      tags: [incidents]
+      summary: List incidents, newest first (keyset pagination)
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/IncidentStatus' } }
+        - { name: monitorId, in: query, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string }, description: Opaque value from the previous page's nextCursor }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Incident' } }
+                  nextCursor: { type: [string, 'null'], description: null on the last page }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/incidents/{id}:
+    get:
+      tags: [incidents]
+      summary: One incident with its timeline
+      parameters: [{ $ref: '#/components/parameters/IncidentId' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/IncidentDetail' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/incidents/{id}/acknowledge:
+    post:
+      tags: [incidents]
+      summary: Acknowledge an incident. Stops escalation. Idempotent.
+      description: No request body. On an already acknowledged incident returns 200 with the unchanged incident.
+      parameters: [{ $ref: '#/components/parameters/IncidentId' }]
+      responses:
+        '200': { description: Acknowledged (or already was), content: { application/json: { schema: { $ref: '#/components/schemas/Incident' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code INCIDENT_ALREADY_RESOLVED' }
+  /v1/incidents/{id}/resolve:
+    post:
+      tags: [incidents]
+      summary: Resolve an incident manually (resolution MANUAL). Idempotent.
+      parameters: [{ $ref: '#/components/parameters/IncidentId' }]
+      responses:
+        '200': { description: Resolved (or already was), content: { application/json: { schema: { $ref: '#/components/schemas/Incident' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/escalation-policy:
+    get:
+      tags: [on-call]
+      summary: The organization's escalation policy
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/EscalationPolicy' } } } }
+        '404': { $ref: '#/components/responses/NotFound', description: 'Not created yet (the auth.org.created.v1 event has not been processed)' }
+    put:
+      tags: [on-call]
+      summary: Replace the escalation policy (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EscalationPolicyInput' } } }
+      responses:
+        '200': { description: Replaced, content: { application/json: { schema: { $ref: '#/components/schemas/EscalationPolicy' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable', description: 'code UNKNOWN_RESPONDER or UNKNOWN_SCHEDULE' }
+  /v1/schedules:
+    get:
+      tags: [on-call]
+      summary: List on-call schedules
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Schedule' } } } } } } }
+    post:
+      tags: [on-call]
+      summary: Create a schedule (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ScheduleInput' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Schedule' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code SCHEDULE_NAME_TAKEN' }
+        '422': { $ref: '#/components/responses/Unprocessable', description: 'code UNKNOWN_RESPONDER: a member is not (yet) known to this service' }
+  /v1/schedules/{id}:
+    parameters: [{ $ref: '#/components/parameters/ScheduleId' }]
+    get:
+      tags: [on-call]
+      summary: Get one schedule
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Schedule' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [on-call]
+      summary: Replace a schedule (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ScheduleInput' } } }
+      responses:
+        '200': { description: Replaced, content: { application/json: { schema: { $ref: '#/components/schemas/Schedule' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      tags: [on-call]
+      summary: Delete a schedule (ADMIN)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code SCHEDULE_IN_USE: referenced by the escalation policy' }
+  /v1/schedules/{id}/on-call:
+    get:
+      tags: [on-call]
+      summary: Who is on call for this schedule
+      parameters:
+        - { $ref: '#/components/parameters/ScheduleId' }
+        - { name: at, in: query, schema: { type: string, format: date-time }, description: Defaults to now }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [userId, displayName, shiftStartsAt, shiftEndsAt]
+                properties:
+                  userId: { type: string, format: uuid }
+                  displayName: { type: string }
+                  shiftStartsAt: { type: string, format: date-time }
+                  shiftEndsAt: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/monitor-signals:
+    post:
+      tags: [internal]
+      deprecated: true
+      summary: PHASE 1 ONLY. Synchronous status-change signal from monitor-worker.
+      description: >
+        Exists only in the walking skeleton, before the broker. Not routed by the gateway.
+        Removed in Phase 2, when the same payload arrives as the event monitor.state.changed.v1.
+        The body is that event's `data` object plus an `eventId` used for idempotency.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId, orgId, monitorId, monitorName, url, from, to, stateVersion, changedAt]
+              properties:
+                eventId: { type: string, format: uuid }
+                orgId: { type: string, format: uuid }
+                monitorId: { type: string, format: uuid }
+                monitorName: { type: string }
+                url: { type: string }
+                from: { type: string }
+                to: { type: string }
+                stateVersion: { type: integer }
+                changedAt: { type: string, format: date-time }
+                cause: { type: [object, 'null'] }
+      responses:
+        '202': { description: Signal applied (or recognised as a duplicate) }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    IncidentId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    ScheduleId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    IncidentStatus: { type: string, enum: [OPEN, ACKNOWLEDGED, RESOLVED] }
+    Incident:
+      type: object
+      required: [id, monitorId, monitorName, monitorUrl, status, cause, openedAt, escalationLevel, version]
+      properties:
+        id: { type: string, format: uuid }
+        monitorId: { type: string, format: uuid }
+        monitorName: { type: string }
+        monitorUrl: { type: string }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        cause: { type: object, properties: { failureReason: { type: [string, 'null'] }, statusCode: { type: [integer, 'null'] } } }
+        openedAt: { type: string, format: date-time }
+        acknowledgedAt: { type: [string, 'null'], format: date-time }
+        acknowledgedBy: { type: [string, 'null'], format: uuid }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        resolvedBy: { type: [string, 'null'], format: uuid }
+        resolution: { type: [string, 'null'], enum: [RECOVERED, MANUAL, MONITOR_PAUSED, MONITOR_DELETED, null] }
+        escalationLevel: { type: integer }
+        nextEscalationAt: { type: [string, 'null'], format: date-time }
+        version: { type: integer }
+    TimelineEntry:
+      type: object
+      required: [seq, type, actorType, occurredAt, data]
+      properties:
+        seq: { type: integer }
+        type: { type: string, enum: [OPENED, PAGE_REQUESTED, NOTIFICATION_SENT, NOTIFICATION_FAILED, ACKNOWLEDGED, ESCALATED, RESOLVED, NO_RESPONDER_AVAILABLE] }
+        actorType: { type: string, enum: [USER, SYSTEM] }
+        actorId: { type: [string, 'null'], format: uuid }
+        actorName: { type: [string, 'null'], description: From the responders replica }
+        occurredAt: { type: string, format: date-time }
+        data: { type: object, description: Type-specific details, for example channelType and targetLabel }
+    IncidentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Incident'
+        - { type: object, required: [timeline], properties: { timeline: { type: array, items: { $ref: '#/components/schemas/TimelineEntry' } } } }
+    EscalationTarget:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [USER, SCHEDULE] }
+        id: { type: string, format: uuid }
+        name: { type: string, readOnly: true }
+    EscalationLevel:
+      type: object
+      required: [level, delaySeconds, targets]
+      properties:
+        level: { type: integer, minimum: 1 }
+        delaySeconds: { type: integer, minimum: 60, maximum: 3600, default: 300 }
+        targets: { type: array, minItems: 1, items: { $ref: '#/components/schemas/EscalationTarget' } }
+    EscalationPolicyInput:
+      type: object
+      required: [levels]
+      properties:
+        name: { type: string, maxLength: 100 }
+        levels: { type: array, minItems: 1, maxItems: 5, items: { $ref: '#/components/schemas/EscalationLevel' }, description: Levels must be numbered 1..n without gaps }
+    EscalationPolicy:
+      allOf:
+        - $ref: '#/components/schemas/EscalationPolicyInput'
+        - { type: object, required: [id, version], properties: { id: { type: string, format: uuid }, version: { type: integer } } }
+    ScheduleInput:
+      type: object
+      required: [name, rotationStart, shiftLengthHours, memberUserIds]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        rotationStart: { type: string, format: date-time }
+        shiftLengthHours: { type: integer, minimum: 1, maximum: 720, default: 168 }
+        memberUserIds: { type: array, minItems: 1, maxItems: 50, items: { type: string, format: uuid }, description: In rotation order }
+    Schedule:
+      allOf:
+        - $ref: '#/components/schemas/ScheduleInput'
+        - { type: object, required: [id], properties: { id: { type: string, format: uuid }, members: { type: array, items: { type: object, properties: { userId: { type: string, format: uuid }, displayName: { type: string } } } } } }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        instance: { type: string }
+        requestId: { type: string }
+        errors: { type: array, items: { type: object, required: [field, message], properties: { field: { type: string }, message: { type: string } } } }
+  responses:
+    ValidationFailed: { description: 'code VALIDATION_FAILED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: 'code UNAUTHENTICATED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Forbidden: { description: 'code FORBIDDEN', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'code NOT_FOUND', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Conflict, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unprocessable: { description: Semantically invalid, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }

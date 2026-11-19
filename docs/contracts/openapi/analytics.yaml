@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel analytics service
+  version: 1.0.0
+  description: >
+    Read-only views over the analytics read model: uptime, latency, incident counts, MTTA, MTTR.
+    Through the gateway, /v1 paths are prefixed with /api. Scoped to the token's organization.
+    Data is eventually consistent with the source services, typically a few seconds behind;
+    every response reports how fresh it is in `asOf`.
+    Uptime is check-based: successful checks divided by total checks in the window.
+    MTTA ignores incidents that were never acknowledged; MTTR ignores unresolved incidents.
+servers:
+  - { url: 'http://analytics:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway (not the /internal paths) }
+security: [{ bearerAuth: [] }]
+tags: [{ name: analytics }, { name: internal }]
+
+paths:
+  /v1/analytics/overview:
+    get:
+      tags: [analytics]
+      summary: Organization-wide summary plus one row per monitor
+      parameters: [{ $ref: '#/components/parameters/Window' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [window, asOf, organization, monitors]
+                properties:
+                  window: { $ref: '#/components/schemas/WindowName' }
+                  asOf: { type: string, format: date-time, description: Time of the newest event projected }
+                  organization: { $ref: '#/components/schemas/Summary' }
+                  monitors:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Summary'
+                        - { type: object, required: [monitorId, name, deleted], properties: { monitorId: { type: string, format: uuid }, name: { type: string }, deleted: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/analytics/monitors/{monitorId}/summary:
+    get:
+      tags: [analytics]
+      summary: Uptime, latency and incident metrics for one monitor
+      parameters: [{ $ref: '#/components/parameters/MonitorId' }, { $ref: '#/components/parameters/Window' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Summary'
+                  - { type: object, required: [window, asOf], properties: { window: { $ref: '#/components/schemas/WindowName' }, asOf: { type: string, format: date-time } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/analytics/monitors/{monitorId}/series:
+    get:
+      tags: [analytics]
+      summary: Time series of uptime and latency for charts
+      parameters:
+        - { $ref: '#/components/parameters/MonitorId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: bucket, in: query, schema: { type: string, enum: [hour, day], default: hour }, description: 'hour allows ranges up to 31 days; day up to 400 days' }
+      responses:
+        '200':
+          description: OK. Buckets with no checks are omitted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [bucket, asOf, points]
+                properties:
+                  bucket: { type: string, enum: [hour, day] }
+                  asOf: { type: string, format: date-time }
+                  points: { type: array, items: { $ref: '#/components/schemas/SeriesPoint' } }
+        '400': { $ref: '#/components/responses/ValidationFailed', description: 'code VALIDATION_FAILED, including RANGE_TOO_LARGE cases' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /internal/v1/analytics/status:
+    get:
+      tags: [internal]
+      summary: Projection status. Not routed by the gateway. ADMIN token required.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, streams]
+                properties:
+                  state: { type: string, enum: [RUNNING, REBUILDING, STOPPED] }
+                  streams:
+                    type: array
+                    items:
+                      type: object
+                      required: [stream, lastOffset, lagSeconds]
+                      properties:
+                        stream: { type: string, examples: [ms.archive.checks] }
+                        lastOffset: { type: integer }
+                        lagSeconds: { type: [number, 'null'], description: Now minus the time of the last projected event }
+                  dirtyBuckets: { type: integer }
+                  quarantined: { type: integer }
+  /internal/v1/analytics/rebuild:
+    post:
+      tags: [internal]
+      summary: Truncate the read model and replay both streams from the first offset
+      description: >
+        Not routed by the gateway. ADMIN token required. Asynchronous: returns immediately;
+        progress is visible in /internal/v1/analytics/status. While rebuilding, the public
+        endpoints return 503 with code READ_MODEL_REBUILDING.
+      responses:
+        '202': { description: Rebuild started }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code REBUILD_IN_PROGRESS' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    MonitorId: { name: monitorId, in: path, required: true, schema: { type: string, format: uuid } }
+    Window: { name: window, in: query, schema: { $ref: '#/components/schemas/WindowName' } }
+  schemas:
+    WindowName: { type: string, enum: [24h, 7d, 30d], default: 24h }
+    Summary:
+      type: object
+      required: [uptimePercent, checksTotal, incidentCount, mttaSeconds, mttrSeconds, latencyAvgMs]
+      properties:
+        uptimePercent: { type: [number, 'null'], minimum: 0, maximum: 100, description: null when there were no checks in the window, examples: [99.87] }
+        checksTotal: { type: integer }
+        latencyAvgMs: { type: [integer, 'null'] }
+        incidentCount: { type: integer, description: Incidents opened in the window }
+        mttaSeconds: { type: [number, 'null'], description: Mean time to acknowledge; null when no incident was acknowledged }
+        mttrSeconds: { type: [number, 'null'], description: Mean time to resolve; null when no incident was resolved }
+    SeriesPoint:
+      type: object
+      required: [bucketStart, uptimePercent, checksTotal, latencyAvgMs, latencyP95Ms]
+      properties:
+        bucketStart: { type: string, format: date-time }
+        uptimePercent: { type: number }
+        checksTotal: { type: integer }
+        latencyAvgMs: { type: [integer, 'null'] }
+        latencyP95Ms: { type: [integer, 'null'], description: For bucket=day this is the maximum of the hourly p95 values, not a true daily p95 }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        instance: { type: string }
+        requestId: { type: string }
+        errors: { type: array, items: { type: object, required: [field, message], properties: { field: { type: string }, message: { type: string } } } }
+  responses:
+    ValidationFailed: { description: 'code VALIDATION_FAILED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: 'code UNAUTHENTICATED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'code NOT_FOUND (unknown monitor, or one of another organization)', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Conflict, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }

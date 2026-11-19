@@ -1,0 +1,169 @@
+openapi: 3.1.0
+info:
+  title: MicroSentinel monitor service
+  version: 1.0.0
+  description: >
+    Monitor definitions, current status and recent checks. Through the gateway, paths are
+    prefixed with /api. Every operation is scoped to the organization in the token's `org` claim.
+    Writes require role ADMIN or OWNER; reads are open to every member.
+servers:
+  - { url: 'http://monitor:3000', description: Inside the Compose network }
+  - { url: 'http://localhost:8080/api', description: Through the gateway }
+security: [{ bearerAuth: [] }]
+
+paths:
+  /v1/monitors:
+    get:
+      summary: List the organization's monitors, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/MonitorStatus' } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Monitor' } }
+                  total: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      summary: Create a monitor (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateMonitorRequest' } } }
+      responses:
+        '201':
+          description: Created. First check is scheduled immediately.
+          headers: { Location: { schema: { type: string } } }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Monitor' } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict', description: 'code MONITOR_NAME_TAKEN' }
+        '422': { $ref: '#/components/responses/Unprocessable', description: 'code BLOCKED_TARGET: the URL fails the SSRF guard' }
+  /v1/monitors/{id}:
+    parameters: [{ $ref: '#/components/parameters/MonitorId' }]
+    get:
+      summary: Get one monitor
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Monitor' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Edit a monitor's definition (ADMIN). Only supplied fields change.
+      description: Never changes status, counters or scheduling. Increments definitionVersion.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMonitorRequest' } } }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Monitor' } } } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+    delete:
+      summary: Delete a monitor (ADMIN). Its unresolved incident is resolved asynchronously.
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/monitors/{id}/pause:
+    post:
+      summary: Stop checking this monitor (ADMIN). Idempotent.
+      parameters: [{ $ref: '#/components/parameters/MonitorId' }]
+      responses:
+        '200': { description: Status is PAUSED, content: { application/json: { schema: { $ref: '#/components/schemas/Monitor' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/monitors/{id}/resume:
+    post:
+      summary: Resume checking (ADMIN). Idempotent. Status becomes UNKNOWN until the next check.
+      parameters: [{ $ref: '#/components/parameters/MonitorId' }]
+      responses:
+        '200': { description: Resumed, content: { application/json: { schema: { $ref: '#/components/schemas/Monitor' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/monitors/{id}/checks:
+    get:
+      summary: Recent checks (last 24 hours), newest first
+      parameters:
+        - { $ref: '#/components/parameters/MonitorId' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Check' } } } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    MonitorId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    MonitorStatus: { type: string, enum: [UNKNOWN, UP, DOWN, PAUSED] }
+    MonitorDefinition:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        url: { type: string, format: uri, maxLength: 2048, description: http or https only }
+        method: { type: string, enum: [GET, HEAD], default: GET }
+        intervalSeconds: { type: integer, minimum: 30, maximum: 3600, default: 60, description: Minimum is 10 when ALLOW_FAST_INTERVALS=true }
+        timeoutMs: { type: integer, minimum: 1000, maximum: 30000, default: 10000 }
+        acceptedStatusCodes: { type: string, pattern: '^\d{3}(-\d{3})?(,\d{3}(-\d{3})?)*$', default: '200-299', examples: ['200-299,301'] }
+        failureThreshold: { type: integer, minimum: 1, maximum: 10, default: 3 }
+        recoveryThreshold: { type: integer, minimum: 1, maximum: 10, default: 2 }
+    CreateMonitorRequest:
+      allOf:
+        - $ref: '#/components/schemas/MonitorDefinition'
+        - { type: object, required: [name, url] }
+    UpdateMonitorRequest:
+      $ref: '#/components/schemas/MonitorDefinition'
+    Monitor:
+      allOf:
+        - $ref: '#/components/schemas/MonitorDefinition'
+        - type: object
+          required: [id, name, url, method, intervalSeconds, timeoutMs, acceptedStatusCodes, failureThreshold, recoveryThreshold, paused, status, stateVersion, definitionVersion, createdAt]
+          properties:
+            id: { type: string, format: uuid }
+            paused: { type: boolean }
+            status: { $ref: '#/components/schemas/MonitorStatus' }
+            stateVersion: { type: integer }
+            definitionVersion: { type: integer }
+            consecutiveFailures: { type: integer }
+            lastCheckedAt: { type: [string, 'null'], format: date-time }
+            lastStatusChangeAt: { type: [string, 'null'], format: date-time }
+            createdAt: { type: string, format: date-time }
+    Check:
+      type: object
+      required: [id, checkedAt, outcome, statusCode, latencyMs, failureReason]
+      properties:
+        id: { type: string, format: uuid }
+        checkedAt: { type: string, format: date-time }
+        outcome: { type: string, enum: [SUCCESS, FAILURE] }
+        statusCode: { type: [integer, 'null'] }
+        latencyMs: { type: [integer, 'null'] }
+        failureReason: { type: [string, 'null'], enum: [TIMEOUT, DNS_ERROR, CONNECTION_ERROR, TLS_ERROR, UNEXPECTED_STATUS, BLOCKED_TARGET, null] }
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        instance: { type: string }
+        requestId: { type: string }
+        errors: { type: array, items: { type: object, required: [field, message], properties: { field: { type: string }, message: { type: string } } } }
+  responses:
+    ValidationFailed: { description: 'code VALIDATION_FAILED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unauthorized: { description: 'code UNAUTHENTICATED', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Forbidden: { description: 'code FORBIDDEN', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    NotFound: { description: 'code NOT_FOUND (also for monitors of another organization)', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Conflict, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Unprocessable: { description: Semantically invalid, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
